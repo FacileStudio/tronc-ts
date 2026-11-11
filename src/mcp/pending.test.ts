@@ -28,6 +28,11 @@ describe.skipIf(!url)('SqlPending on Postgres', () => {
     await store.resolve('u1', 'a2', 'dismissed');
     await expect(store.resolve('u1', 'a2', 'dismissed')).rejects.toBeInstanceOf(TroncError);
     expect(await store.open('u1')).toEqual([]);
+    await store.create(action('a3'));
+    await store.create(action('b1', 'u2'));
+    await store.erase('u1');
+    expect(await store.open('u1')).toEqual([]);
+    expect((await store.open('u2')).map((a) => a.id)).toEqual(['b1']);
     await db.unsafe('DROP TABLE mcp_actions');
     await db.close();
   });

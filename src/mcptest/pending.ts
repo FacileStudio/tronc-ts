@@ -52,6 +52,11 @@ export class MemoryPending implements Pending {
     Object.assign(row, { resolved: true, outcome });
   }
 
+  /** Deletes every action of userIds. */
+  async erase(...userIds: string[]): Promise<void> {
+    for (const [id, row] of this.rows) if (userIds.includes(row.action.userId)) this.rows.delete(id);
+  }
+
   /** The recorded outcome of action id, for assertions. */
   outcome(id: string): string {
     return this.rows.get(id)?.outcome ?? '';

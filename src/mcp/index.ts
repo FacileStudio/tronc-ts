@@ -17,6 +17,7 @@ export * from './page';
 export * from './pending';
 export * from './ratelimit';
 export * from './server';
+export * from './target';
 export * from './tool';
 export * from './validate';
 export * from './verifier';

@@ -6,6 +6,22 @@ All notable changes to `tronc-ts` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
+Ports `Digest` and `Pending.Erase` from Go tronc/mcp v0.22.0. Its chi confirm-page routes (`PendingPage`), `NewApp` and `TargetIDs` stay Go-only.
+
+### Added
+
+- **`digest(...fields)`**, the fingerprint for `Kind.fingerprint`: hex of the first 16 bytes of
+  SHA-256 over the fields joined by NUL, byte for byte Go's `mcp.Digest`.
+- **Erasing pending actions.** `Pending.erase(...userIds)`, implemented by `SqlPending` and
+  `MemoryPending`, and `erasePending(query, ...userIds)` to run the same delete inside an account
+  erasure's own transaction.
+
+### Changed
+
+- **Breaking for custom stores:** `Pending` gains `erase`.
+
 ## [0.1.0] - 2026-11-11
 
 ### Added

@@ -51,6 +51,8 @@ export interface Pending {
   release(id: string): Promise<void>;
   /** Closes one of the person's open actions without running it, or throws gone(). */
   resolve(userId: string, id: string, outcome: string): Promise<void>;
+  /** Deletes every action of the people, resolved or not, for an account erasure. */
+  erase(...userIds: string[]): Promise<void>;
 }
 
 /** The table SqlPending uses, the same as Go mcp.PendingSchema. Idempotent and additive. */
@@ -128,12 +130,32 @@ export class SqlPending implements Pending {
     if (rows.length === 0) throw gone();
   }
 
+  /** Deletes every action of userIds. */
+  erase(...userIds: string[]): Promise<void> {
+    return erasePending(this.query, ...userIds);
+  }
+
   /** Runs a statement and hides driver errors behind an internal error. */
   private async run(sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
     try {
       return await this.query(sql, params);
     } catch (cause) {
       throw internal('failed to reach the pending actions', cause);
+    }
+  }
+}
+
+/**
+ * Deletes every action of userIds through query, so an account erasure can run
+ * it inside its own transaction. One statement per person keeps it free of
+ * driver-specific array types.
+ */
+export async function erasePending(query: Query, ...userIds: string[]): Promise<void> {
+  for (const userId of userIds) {
+    try {
+      await query('DELETE FROM mcp_actions WHERE user_id = $1 RETURNING id', [userId]);
+    } catch (cause) {
+      throw internal('failed to erase pending actions', cause);
     }
   }
 }

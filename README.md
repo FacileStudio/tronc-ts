@@ -13,10 +13,10 @@ It is built on the official SDK, `@modelcontextprotocol/server` 2.4 (`createMcpH
 bun installs it from a tag, from the repository root:
 
 ```sh
-bun add github:FacileStudio/tronc-ts#v0.1.0
+bun add github:FacileStudio/tronc-ts#v0.2.0
 ```
 
-which writes `"@facile/tronc": "github:FacileStudio/tronc-ts#v0.1.0"` to `package.json`.
+which writes `"@facile/tronc": "github:FacileStudio/tronc-ts#v0.2.0"` to `package.json`.
 
 The package ships TypeScript source, like muse. It needs bun (or any bundler-style resolver) and
 `moduleResolution: "Bundler"`.
@@ -119,6 +119,9 @@ async ({ id }, req) => {
 - `fingerprint` runs when asking and again before running. If the target changed in between, the
   action closes and nothing runs.
 - `PENDING_SCHEMA` is the same `mcp_actions` table as Go. Run it with your migrations.
+- `digest(...fields)` makes a fingerprint, byte for byte Go's `mcp.Digest`.
+- An account erasure deletes the person's actions with `store.erase(userId)`, or with
+  `erasePending(query, userId)` inside its own transaction.
 - The confirm page calls `confirm`, `dismiss`, `open`, `state` and `link`. It must refuse a
   delegated token: an agent never confirms its own request.
 

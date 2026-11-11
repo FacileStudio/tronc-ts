@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  checkTools, clip, decodeCursor, detailed, encodeCursor, ERR_UNAVAILABLE, failure, fitCount, invalid, Limiter,
+  checkTools, clip, digest, decodeCursor, detailed, encodeCursor, ERR_UNAVAILABLE, failure, fitCount, invalid, Limiter,
   newTool, notFound, Signer, TroncError, envelope,
 } from '.';
 
@@ -78,5 +78,11 @@ describe('checkTools', () => {
     expect(() => checkTools([tool('notes_x', true, true)], 'notes_', 'notes.write')).toThrow('read-only and destructive');
     expect(() => checkTools([tool('notes_x', false)], 'notes_', undefined)).toThrow('write scope');
     expect(() => checkTools([tool('notes_Bad')], 'notes_', 'notes.write')).toThrow('must be named');
+  });
+});
+
+describe('digest', () => {
+  test('matches Go tronc/mcp Digest byte for byte', () => {
+    expect(digest('42', 'Lunch', '2026-11-11')).toBe('5e9be4c7b3d9dfa4dcb9eba0b0b772b4');
   });
 });
