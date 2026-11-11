@@ -1,0 +1,11 @@
+# tronc-ts: the TypeScript chassis of the Facile Suite, modelled on tronc's filet.yml.
+
+kind: lib
+
+ignore: [.git, node_modules, dist, build, coverage, testdata]
+extensions: [.ts]
+
+disabled:
+  - gen.line.long   # the formatter owns line width
+
+failOn: error

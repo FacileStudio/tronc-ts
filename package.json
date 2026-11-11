@@ -1,0 +1,32 @@
+{
+  "name": "@facile/tronc",
+  "version": "0.1.0",
+  "description": "The TypeScript chassis of the Facile suite: a remote MCP server kit on the official SDK, and its conformance kit",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./mcp": {
+      "types": "./src/mcp/index.ts",
+      "default": "./src/mcp/index.ts"
+    },
+    "./mcp/mcptest": {
+      "types": "./src/mcptest/index.ts",
+      "default": "./src/mcptest/index.ts"
+    }
+  },
+  "files": ["src", "README.md", "CHANGELOG.md", "LICENSE"],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit && bun test && filet check ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "jose": "^6.2.17"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^5.9.3"
+  }
+}
