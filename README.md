@@ -111,11 +111,15 @@ const confirmations = new Confirmations({
 async ({ id }, req) => {
   if (retrying(req.ctx)) return { status: (await confirmations.resume(req, 'delete_lead')).status };
   const { result, outcome } = await confirmations.request(req, 'delete_lead', id, `Delete lead ${id}?`);
-  return result ?? { status: outcome.status, confirm_url: outcome.confirmUrl };
+  return result ?? { status: outcome.status, confirm_url: outcome.confirmUrl, message: outcome.message };
 };
 ```
 
 - The question state is signed with HMAC-SHA256 and bound to the person, in Go's wire format.
+  Derive the key with `stateKey(app, secret)`, byte for byte Go's `mcp.StateKey`.
+- Asking again about the same kind, target and digest reuses the person's open action instead of
+  opening another. `outcome.message` carries the standard text for the model on a link or a
+  decline.
 - A claim is single use, whether it comes from the client or from the confirm page.
 - `fingerprint` runs when asking and again before running. If the target changed in between, the
   action closes and nothing runs.
@@ -123,8 +127,10 @@ async ({ id }, req) => {
 - `digest(...fields)` makes a fingerprint, byte for byte Go's `mcp.Digest`.
 - An account erasure deletes the person's actions with `store.erase(userId)`, or with
   `erasePending(query, userId)` inside its own transaction.
-- The confirm page calls `confirm`, `dismiss`, `open`, `state` and `link`. It must refuse a
-  delegated token: an agent never confirms its own request.
+- The confirm page calls `confirm`, `dismiss`, `list` (at most `OPEN_LIMIT`, 100, with
+  `truncated`), `state` and `link`. It must refuse a delegated token: an agent never confirms its
+  own request.
+- `keepPruned(store)` deletes, hourly, the actions resolved or expired more than 30 days ago.
 
 ## Test it
 
@@ -172,11 +178,12 @@ const list = await bulle.ideas(userId, 'glouton', spaceId);
   `spaceId` is sent only when set. Pass a longer `timeoutMs` (the third argument) than the 20 s
   default for long completions.
 - `decideAI` posts to `/api/ai/decide` with a service key as token and the person's email in
-  `X-Bulle-Acting-For`. `decide` answers a run's pending approval.
-- `call(user, { method, segments, query, body })` reaches any other route. Segments are escaped
+  `X-Bulle-Acting-For`; a blank email throws `NoActingForError` before any call. `decide`
+  answers a run's pending approval.
+- `call(user, { method, segments, query, body, headers })` (a `BulleRequest`) reaches any other route. Segments are escaped
   one by one, so an id holding `/` or `?` stays one segment; `.`, `..` and empty ones throw
   `BadSegmentError` before any call.
-- A 402 throws `PlanRequired` (`message`, `upgradeUrl`, `key`), another 4xx `StatusError`
+- A 402 throws `PlanRequired` (`message`, `upgradeUrl`, `key`, `limit`), another 4xx `StatusError`
   (`status`, `code`, `message`), and a 5xx, timeout, network error or redirect
   `UnreachableError`. A token source failure is thrown as it is.
 
@@ -187,7 +194,7 @@ bun install
 bun run typecheck
 bun test                 # set TEST_DATABASE_URL to run the Postgres store test
 filet check .
-sh scripts/sync-vectors.sh v0.22.2   # refresh testdata/vectors from a Go tronc tag
+sh scripts/sync-vectors.sh v0.23.0   # refresh testdata/vectors from a Go tronc tag
 ```
 
 ## License

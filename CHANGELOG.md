@@ -6,23 +6,41 @@ All notable changes to `tronc-ts` are recorded here. The format follows
 
 ## [Unreleased]
 
-Ports Go tronc/bulle (unchanged since v0.18.0) and aligns the MCP kit's refusals with Go tronc
-v0.22.2. Go: tronc v0.23.0 adds the typed `Complete` with `SpaceID`, the decision call, refused
-redirects and the vectors this package will consume.
+Ports Go tronc/bulle and the MCP changes of Go tronc v0.23.0, and runs every v0.23.0
+conformance vector that applies to TypeScript.
 
 ### Added
 
 - **`@facile/tronc/bulle`**, the Bulle client: `call`/`send` with Go's segment and query escaping,
   `ideas`, `generate`, `run`, `runStatus`, `decide` (a run's approval), `dismiss`, a typed
   `complete` on `/api/ai/complete` (with `spaceId`) and `decideAI` on `/api/ai/decide`. A 402 is
-  `PlanRequired` with an unsafe upgrade page dropped, another 4xx `StatusError`, and a 5xx,
-  timeout, network error or redirect `UnreachableError`. A 401 retries once after `forget`.
-  Redirects are never followed.
-- **`safeUpgradeUrl`**, Go's `errors.SafeUpgradeURL`, and `troncErrorOf`, which finds a
-  `TroncError` along an error's cause chain like Go's `errors.As`.
-- **Go conformance vectors** in `testdata/vectors`, synced by `scripts/sync-vectors.sh <tag>`
-  and checked in CI against the recorded tag. `errors.json` runs; each other subject is listed
-  as Go-only, and a new vector file fails the test until it gets a runner or that listing.
+  `PlanRequired` (with `limit`) with an unsafe upgrade page dropped, another 4xx `StatusError`,
+  and a 5xx, timeout, network error or redirect `UnreachableError`. A 401 retries once after
+  `forget`. Redirects are never followed. `decideAI` trims `actingFor` and throws
+  `NoActingForError` before any call when it is blank. A caller's header never joins or replaces
+  `Authorization`. Error bodies are read with Go's case-insensitive keys. The call type is
+  `BulleRequest`, so it does not shadow the global `Request`.
+- **`safeUpgradeUrl`**, Go's `errors.SafeUpgradeURL`, now on a port of Go `url.Parse` (bad `%`
+  escapes, host bytes, ports), and `troncErrorOf`, which finds a `TroncError` along an error's
+  cause chain like Go's `errors.As`. A run output's link is written back as Go's `URL.String`.
+- **`stateKey(app, secret)`**, Go `mcp.StateKey`: SHA-256 over `<app>-mcp-state:<secret>`.
+- **Bounded pending actions**, as Go v0.23.0. `Confirmations.request` reuses the person's open
+  action of the same kind, target and digest. `SqlPending.open` reads at most `OPEN_LIMIT` + 1
+  rows, and `Confirmations.list` keeps `OPEN_LIMIT` (100) and reports `truncated`.
+  `SqlPending.prune`, `prunePending(query, olderThanMs)` and `keepPruned(store, opts)` delete the
+  actions resolved or expired more than 30 days ago, hourly.
+- **Confirmation text.** `Outcome.message` carries Go's waiting text on a link and
+  `MESSAGE_DECLINED` on a decline; `Confirmations.waiting()` names the pending lifetime.
+- **Offset pager** `page(items, cursor, size)`, `offsetOf(cursor)` and `cursorAt(offset, total)`,
+  Go's `Page`, `Offset` and `Cursor`.
+- **`PlanLimit`**: `failure` maps any error with `planLimit()` along the cause chain to "The plan
+  limit for <feature> is reached. Upgrade at <url>", as Go.
+- **Go conformance vectors** from tronc v0.23.0 in `testdata/vectors`, synced by
+  `scripts/sync-vectors.sh <tag>` and checked in CI against the recorded tag. `errors`,
+  `mcp_http`, `mcp_rate_limit`, `mcp_digest`, `mcp_state_key`, `mcp_failure`, `bulle_errors`
+  and `bulle_paths` run. `mcp_http` compares only the status and the challenge's scope and
+  `resource_metadata` of a 401 or 403, whose body comes from the official SDK's RFC 6750 gate;
+  every other answer is byte for byte. Go's HTTP chassis subjects are listed as Go-only.
 
 ### Changed
 
@@ -30,6 +48,11 @@ redirects and the vectors this package will consume.
   `NewApp`. A token without a person gets a bucket of its own instead of a shared `anonymous` one.
 - **Breaking:** a 429 is plain text `rate limit exceeded` and a foreign `Origin` a plain-text
   403 `Forbidden: origin not allowed`, as Go answers both.
+- `failure` keeps an `unavailable` error's message, re-checks a `payment_required` upgrade page
+  and capitalises the first character, not the first UTF-16 unit.
+- GET and DELETE on the MCP endpoint answer a plain-text 405, the 429 drops
+  `X-Content-Type-Options`, and the RFC 9728 document is written as Go's encoder writes it, with
+  `Content-Type: application/json`.
 - A non-tronc error's envelope message is `internal server error`, and envelope bodies are byte
   for byte Go's `httpjson.WriteError`. A `TroncError` drops an upgrade page that is not a
   same-origin path or an https URL, and `failure` and `envelope` read a wrapped `TroncError`.
