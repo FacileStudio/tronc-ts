@@ -1,8 +1,8 @@
 # tronc-ts
 
-The TypeScript chassis of the [Facile Studio](https://facile.studio) suite. Today it holds one
-thing: a kit that gives a TypeScript app a remote MCP server, plus the conformance kit its tests
-run. It is the TypeScript counterpart of Go [`tronc/mcp`](https://github.com/FacileStudio/tronc/tree/main/mcp)
+The TypeScript chassis of the [Facile Studio](https://facile.studio) suite. It holds a kit that
+gives a TypeScript app a remote MCP server, the conformance kit its tests run, and the client an
+app uses to call Bulle for its users. It is the TypeScript counterpart of Go [`tronc/mcp`](https://github.com/FacileStudio/tronc/tree/main/mcp)
 and keeps its names, its wire behaviour and its rules.
 
 It is built on the official SDK, `@modelcontextprotocol/server` 2.4 (`createMcpHandler`), and on
@@ -34,8 +34,9 @@ The package ships TypeScript source, like muse. It needs bun (or any bundler-sty
 - Scopes are `<app>.read` and `<app>.write`. A write grant implies read. A read-only token that
   calls a write tool gets 403 `insufficient_scope` naming the write scope, so the client can ask
   for more. A read-only server sets the read scope alone.
-- Limits each person to two calls a second with a burst of 30. A refusal is 429 with
-  `Retry-After` and the suite envelope `{"error":{"code","message"}}`.
+- Limits each person to 120 calls a minute with a burst of 120, like Go `NewApp`. A token that
+  names no person gets its own bucket. A refusal is a plain-text 429 `rate limit exceeded` with
+  `Retry-After`, and a foreign `Origin` a plain-text 403, as Go answers both.
 - Writes one audit line per write call and per confirmation event, never the arguments.
 
 ## Mount it (Hono)
@@ -110,11 +111,15 @@ const confirmations = new Confirmations({
 async ({ id }, req) => {
   if (retrying(req.ctx)) return { status: (await confirmations.resume(req, 'delete_lead')).status };
   const { result, outcome } = await confirmations.request(req, 'delete_lead', id, `Delete lead ${id}?`);
-  return result ?? { status: outcome.status, confirm_url: outcome.confirmUrl };
+  return result ?? { status: outcome.status, confirm_url: outcome.confirmUrl, message: outcome.message };
 };
 ```
 
 - The question state is signed with HMAC-SHA256 and bound to the person, in Go's wire format.
+  Derive the key with `stateKey(app, secret)`, byte for byte Go's `mcp.StateKey`.
+- Asking again about the same kind, target and digest reuses the person's open action instead of
+  opening another. `outcome.message` carries the standard text for the model on a link or a
+  decline.
 - A claim is single use, whether it comes from the client or from the confirm page.
 - `fingerprint` runs when asking and again before running. If the target changed in between, the
   action closes and nothing runs.
@@ -122,8 +127,10 @@ async ({ id }, req) => {
 - `digest(...fields)` makes a fingerprint, byte for byte Go's `mcp.Digest`.
 - An account erasure deletes the person's actions with `store.erase(userId)`, or with
   `erasePending(query, userId)` inside its own transaction.
-- The confirm page calls `confirm`, `dismiss`, `open`, `state` and `link`. It must refuse a
-  delegated token: an agent never confirms its own request.
+- The confirm page calls `confirm`, `dismiss`, `list` (at most `OPEN_LIMIT`, 100, with
+  `truncated`), `state` and `link`. It must refuse a delegated token: an agent never confirms its
+  own request.
+- `keepPruned(store)` deletes, hourly, the actions resolved or expired more than 30 days ago.
 
 ## Test it
 
@@ -148,6 +155,38 @@ tool: a link for clients that cannot elicit and for 2025 clients, a decline that
 accept that runs once and cannot be replayed, and a link id that cannot pass as a signed state.
 `src/mcp/example.test.ts` is a complete example.
 
+## Call Bulle
+
+`@facile/tronc/bulle` is the counterpart of Go `tronc/bulle`. The token source returns the
+person's token exchanged for audience `bulle`; `forget` drops a cached one after a 401.
+
+```ts
+import { Client, PlanRequired } from '@facile/tronc/bulle';
+
+const target = { audience: 'bulle', scopes: 'bulle.read bulle.write' };
+const bulle = new Client({
+  url: process.env.BULLE_URL!,
+  token: (userId) => tokens.token(userId, target),
+  forget: (userId) => tokens.forget(userId, target),
+});
+
+const { text } = await bulle.complete(userId, { prompt: 'Summarise this thread.', input: thread, spaceId });
+const list = await bulle.ideas(userId, 'glouton', spaceId);
+```
+
+- `complete` posts to `/api/ai/complete`; with `schema` the answer comes back as `json`.
+  `spaceId` is sent only when set. Pass a longer `timeoutMs` (the third argument) than the 20 s
+  default for long completions.
+- `decideAI` posts to `/api/ai/decide` with a service key as token and the person's email in
+  `X-Bulle-Acting-For`; a blank email throws `NoActingForError` before any call. `decide`
+  answers a run's pending approval.
+- `call(user, { method, segments, query, body, headers })` (a `BulleRequest`) reaches any other route. Segments are escaped
+  one by one, so an id holding `/` or `?` stays one segment; `.`, `..` and empty ones throw
+  `BadSegmentError` before any call.
+- A 402 throws `PlanRequired` (`message`, `upgradeUrl`, `key`, `limit`), another 4xx `StatusError`
+  (`status`, `code`, `message`), and a 5xx, timeout, network error or redirect
+  `UnreachableError`. A token source failure is thrown as it is.
+
 ## Development
 
 ```sh
@@ -155,6 +194,7 @@ bun install
 bun run typecheck
 bun test                 # set TEST_DATABASE_URL to run the Postgres store test
 filet check .
+sh scripts/sync-vectors.sh v0.23.0   # refresh testdata/vectors from a Go tronc tag
 ```
 
 ## License

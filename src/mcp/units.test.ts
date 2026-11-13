@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  checkTools, clip, digest, decodeCursor, detailed, encodeCursor, ERR_UNAVAILABLE, failure, fitCount, invalid, Limiter,
-  newTool, notFound, Signer, TroncError, envelope,
+  checkTools, clip, rateKey, digest, decodeCursor, detailed, encodeCursor, ERR_UNAVAILABLE, failure, fitCount, invalid, Limiter,
+  newTool, notFound, Signer, TroncError, envelope, Confirmations, OPEN_LIMIT, page, safeUpgradeUrl, type Action, type ToolRequest,
 } from '.';
+import { MemoryPending } from '../mcptest';
 
 describe('Signer', () => {
   const signer = new Signer(new TextEncoder().encode('k'.repeat(32)), 60_000);
@@ -35,7 +36,16 @@ describe('failure and envelope', () => {
 
   test('writes the suite envelope and never leaks a foreign error', () => {
     expect(envelope(notFound('gone'))).toEqual({ error: { code: 'not_found', message: 'gone' } });
-    expect(envelope(new Error('secret detail'))).toEqual({ error: { code: 'internal', message: 'internal error' } });
+    expect(envelope(new Error('secret detail'))).toEqual({ error: { code: 'internal', message: 'internal server error' } });
+  });
+
+  test('drops an upgrade page a client could not render safely, like Go SafeUpgradeURL', () => {
+    const page = (url: string) => new TroncError('payment_required', 'plan required', { upgradeUrl: url }).upgradeUrl;
+    for (const url of ['https://x.example/up', '/billing?plan=pro', 'HTTPS://x.example']) expect(page(url)).toBe(url);
+    for (const url of ['javascript:alert(1)', '//evil.example', 'http://x.example', 'https://u:p@x.example', '/\\evil', 'https:evil.example', '/a b', 'https://']) {
+      expect(page(url)).toBeUndefined();
+    }
+    expect(failure(new TroncError('payment_required', 'plan required', { upgradeUrl: 'javascript:alert(1)' })).message).toBe('Plan required.');
   });
 });
 
@@ -84,5 +94,56 @@ describe('checkTools', () => {
 describe('digest', () => {
   test('matches Go tronc/mcp Digest byte for byte', () => {
     expect(digest('42', 'Lunch', '2026-11-11')).toBe('5e9be4c7b3d9dfa4dcb9eba0b0b772b4');
+  });
+});
+
+describe('rateKey', () => {
+  test('keys a person by user id and a token without a person by its own hash', () => {
+    const info = (token: string, extra?: Record<string, unknown>) => ({ token, clientId: 'c', scopes: [], extra });
+    expect(rateKey(info('t1', { user_id: '7' }))).toBe('user:7');
+    expect(rateKey(info('t1'))).not.toBe(rateKey(info('t2')));
+    expect(rateKey(info('t1'))).not.toContain('t1');
+  });
+});
+
+describe('Confirmations', () => {
+  const store = new MemoryPending();
+  const confirmations = new Confirmations({
+    store, key: 'k'.repeat(32), confirmUrl: 'https://notes.example/pending', audit: { info: () => {} },
+    kinds: { delete: { tool: 'notes_delete', fingerprint: async (a: Action) => `v-${a.target}`, run: async () => {} } },
+  });
+  const req = { caller: { userId: 'u1', clientId: 'c', scopes: [] }, ctx: { mcpReq: {} } } as unknown as ToolRequest;
+
+  test('asks again about an open action instead of opening a second one', async () => {
+    const first = await confirmations.request(req, 'delete', 'n1', 'Delete n1?');
+    const again = await confirmations.request(req, 'delete', 'n1', 'Delete n1?');
+    const other = await confirmations.request(req, 'delete', 'n2', 'Delete n2?');
+    expect(again.outcome.action.id).toBe(first.outcome.action.id!);
+    expect(other.outcome.action.id).not.toBe(first.outcome.action.id!);
+    expect(first.outcome.message).toContain('the request stays open for 7 days.');
+  });
+
+  test('lists at most OPEN_LIMIT actions and says it left some out', async () => {
+    for (let i = 0; i <= OPEN_LIMIT; i++) await confirmations.request(req, 'delete', `bulk${i}`, 'Delete?');
+    const { actions, truncated } = await confirmations.list('u1');
+    expect([actions.length, truncated]).toEqual([OPEN_LIMIT, true]);
+  });
+});
+
+describe('page', () => {
+  test('cuts pages at an offset cursor and refuses a negative one', () => {
+    const first = page([1, 2, 3], '', 2);
+    expect(first.items).toEqual([1, 2]);
+    expect(page([1, 2, 3], first.next, 2)).toEqual({ items: [3], next: '' });
+    expect(() => page([1], encodeCursor(-1), 2)).toThrow('cursor');
+  });
+});
+
+describe('safeUpgradeUrl', () => {
+  test('follows Go url.Parse on escapes, hosts and ports', () => {
+    const accepted = ['https://x.example:99999/', 'https://xn--a.example', 'https://256.1.1.1/', 'https://x.example?%zz'];
+    const refused = ['https://x.example/%zz', 'https://x.example#%zz', 'https://x.example/a%2', 'https://x%41.example/', 'https://x:1:2/'];
+    expect(accepted.map(safeUpgradeUrl)).toEqual(accepted.map(() => true));
+    expect(refused.map(safeUpgradeUrl)).toEqual(refused.map(() => false));
   });
 });

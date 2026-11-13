@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import {
   CLIENT_CAPABILITIES_META_KEY,
   inputRequired,
@@ -24,6 +24,16 @@ export const ERR_CONFIRMATION = 'this confirmation is no longer valid. Call the 
 
 /** Builds the ERR_CONFIRMATION error, a failed_precondition. */
 export const confirmationInvalid = () => failed(ERR_CONFIRMATION);
+
+/**
+ * The key that signs an app's confirmation state, derived from one of its
+ * secrets: SHA-256 over `<app>-mcp-state:` followed by secret. It is Go
+ * mcp.StateKey byte for byte, so questions signed before an app adopts it
+ * still verify.
+ */
+export function stateKey(app: string, secret: string): Uint8Array {
+  return new Uint8Array(createHash('sha256').update(`${app}-mcp-state:${secret}`).digest());
+}
 
 /** What the person answered to a confirmation. */
 export type Verdict = 'accepted' | 'declined';

@@ -8,9 +8,9 @@ import {
 } from '@modelcontextprotocol/server';
 import { consoleAudit, type AuditLogger } from './audit';
 import { metadataResponse, metadataUrl, protectedResourceMetadata, WELL_KNOWN } from './auth';
-import { errorResponse, TroncError } from './errors';
-import { DEFAULT_RATE_LIMIT, Limiter, type RateLimit } from './ratelimit';
-import { callerFrom } from './caller';
+import { TroncError } from './errors';
+import { errorResponse, rateLimitResponse, textResponse } from './respond';
+import { DEFAULT_RATE_LIMIT, Limiter, rateKey, type RateLimit } from './ratelimit';
 import type { Guard, Tool } from './tool';
 import { checkTools } from './validate';
 
@@ -109,18 +109,18 @@ export class Server {
     return protectedResourceMetadata(this.opts.resource, this.opts.issuer, write ? [read, write] : [read]);
   }
 
-  /** The MCP endpoint: Origin check, bearer token, rate limit, then the stateless SDK handler. */
+  /** The MCP endpoint: Origin check, bearer token, rate limit, then the stateless SDK handler. GET and DELETE answer 405 in plain text, as Go's stateless transport does. */
   private async endpoint(request: Request): Promise<Response> {
     const origin = request.headers.get('Origin');
     if (origin && !this.origins.includes(origin)) {
-      return errorResponse(new TroncError('permission_denied', 'origin not allowed'));
+      return textResponse(403, 'Forbidden: origin not allowed\n');
     }
     const auth = await this.gate(request);
     if (auth instanceof Response) return auth;
-    const key = callerFrom(auth)?.userId ?? 'anonymous';
-    const { ok, retryAfter } = this.limiter.allow(`user:${key}`);
-    if (!ok) {
-      return errorResponse(new TroncError('rate_limited', 'too many requests'), { 'Retry-After': String(retryAfter) });
+    const { ok, retryAfter } = this.limiter.allow(rateKey(auth));
+    if (!ok) return rateLimitResponse(retryAfter);
+    if (request.method === 'GET' || request.method === 'DELETE') {
+      return textResponse(405, 'Method Not Allowed\n', { Allow: 'POST' });
     }
     return this.handler.fetch(request, { authInfo: auth });
   }
