@@ -1,10 +1,14 @@
 {
   "name": "@facile/tronc",
   "version": "0.2.0",
-  "description": "The TypeScript chassis of the Facile suite: a remote MCP server kit on the official SDK, and its conformance kit",
+  "description": "The TypeScript chassis of the Facile suite: a remote MCP server kit on the official SDK, its conformance kit, and the Bulle client",
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./bulle": {
+      "types": "./src/bulle/index.ts",
+      "default": "./src/bulle/index.ts"
+    },
     "./mcp": {
       "types": "./src/mcp/index.ts",
       "default": "./src/mcp/index.ts"
