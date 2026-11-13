@@ -1,4 +1,4 @@
-import { TroncError } from './errors';
+import { troncErrorOf, type TroncError } from './errors';
 
 /** The message a model gets for a failure it cannot fix. */
 export const ERR_UNAVAILABLE = 'the app could not finish this request. Retry once; if it fails again, tell the user';
@@ -29,9 +29,10 @@ const ACTIONABLE = new Set([
  * ids. A plan refusal names its upgrade page. Anything else becomes
  * ERR_UNAVAILABLE, so internal detail stays out of the result.
  */
-export function failure(err: unknown, hint = ''): ToolFailure {
-  if (err instanceof ToolFailure) return err;
-  if (!(err instanceof TroncError)) return new ToolFailure(ERR_UNAVAILABLE);
+export function failure(cause: unknown, hint = ''): ToolFailure {
+  if (cause instanceof ToolFailure) return cause;
+  const err = troncErrorOf(cause);
+  if (!err) return new ToolFailure(ERR_UNAVAILABLE);
   if (err.code === 'not_found') return new ToolFailure(`${sentence(err.message)}. ${hint}`.trim());
   if (ACTIONABLE.has(err.code)) return new ToolFailure(sentence(err.message));
   if (err.code === 'payment_required') return new ToolFailure(upgrade(err));

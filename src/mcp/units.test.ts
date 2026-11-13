@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  checkTools, clip, digest, decodeCursor, detailed, encodeCursor, ERR_UNAVAILABLE, failure, fitCount, invalid, Limiter,
+  checkTools, clip, rateKey, digest, decodeCursor, detailed, encodeCursor, ERR_UNAVAILABLE, failure, fitCount, invalid, Limiter,
   newTool, notFound, Signer, TroncError, envelope,
 } from '.';
 
@@ -35,7 +35,16 @@ describe('failure and envelope', () => {
 
   test('writes the suite envelope and never leaks a foreign error', () => {
     expect(envelope(notFound('gone'))).toEqual({ error: { code: 'not_found', message: 'gone' } });
-    expect(envelope(new Error('secret detail'))).toEqual({ error: { code: 'internal', message: 'internal error' } });
+    expect(envelope(new Error('secret detail'))).toEqual({ error: { code: 'internal', message: 'internal server error' } });
+  });
+
+  test('drops an upgrade page a client could not render safely, like Go SafeUpgradeURL', () => {
+    const page = (url: string) => new TroncError('payment_required', 'plan required', { upgradeUrl: url }).upgradeUrl;
+    for (const url of ['https://x.example/up', '/billing?plan=pro', 'HTTPS://x.example']) expect(page(url)).toBe(url);
+    for (const url of ['javascript:alert(1)', '//evil.example', 'http://x.example', 'https://u:p@x.example', '/\\evil', 'https:evil.example', '/a b', 'https://']) {
+      expect(page(url)).toBeUndefined();
+    }
+    expect(failure(new TroncError('payment_required', 'plan required', { upgradeUrl: 'javascript:alert(1)' })).message).toBe('Plan required.');
   });
 });
 
@@ -84,5 +93,14 @@ describe('checkTools', () => {
 describe('digest', () => {
   test('matches Go tronc/mcp Digest byte for byte', () => {
     expect(digest('42', 'Lunch', '2026-11-11')).toBe('5e9be4c7b3d9dfa4dcb9eba0b0b772b4');
+  });
+});
+
+describe('rateKey', () => {
+  test('keys a person by user id and a token without a person by its own hash', () => {
+    const info = (token: string, extra?: Record<string, unknown>) => ({ token, clientId: 'c', scopes: [], extra });
+    expect(rateKey(info('t1', { user_id: '7' }))).toBe('user:7');
+    expect(rateKey(info('t1'))).not.toBe(rateKey(info('t2')));
+    expect(rateKey(info('t1'))).not.toContain('t1');
   });
 });

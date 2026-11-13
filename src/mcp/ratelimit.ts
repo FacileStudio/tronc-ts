@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import type { AuthInfo } from '@modelcontextprotocol/server';
+import { callerFrom } from './caller';
+
 /** Caps calls per key: `rate` a second sustained, with room for a burst of `burst`. */
 export interface RateLimit {
   rate: number;
@@ -6,8 +10,22 @@ export interface RateLimit {
   maxKeys?: number;
 }
 
-/** Two calls a second sustained, with room for a burst of thirty, like Go tronc/mcp. */
-export const DEFAULT_RATE_LIMIT: RateLimit = { rate: 2, burst: 30, maxKeys: 10_000 };
+/** 120 calls a minute with a burst of 120, like Go tronc/mcp NewApp's DefaultPerMinute. */
+export const DEFAULT_RATE_LIMIT: RateLimit = { rate: 2, burst: 120, maxKeys: 10_000 };
+
+/** The body of a 429, Go middleware.RateLimitExceededBody. */
+export const RATE_LIMIT_EXCEEDED_BODY = 'rate limit exceeded';
+
+/**
+ * The bucket a verified token spends from: the person it speaks for, or the
+ * token itself when it names no person, so two service tokens never share a
+ * bucket. The token is hashed, never kept.
+ */
+export function rateKey(info: AuthInfo): string {
+  const userId = callerFrom(info)?.userId;
+  if (userId) return `user:${userId}`;
+  return `token:${createHash('sha256').update(info.token).digest('hex')}`;
+}
 
 /** A token bucket per key, the same algorithm as tronc's middleware.Limiter. */
 export class Limiter {

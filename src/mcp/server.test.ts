@@ -25,7 +25,7 @@ describe('Server', () => {
     expect(server.metadata().scopes_supported).toEqual(['probe.read']);
   });
 
-  test('answers 429 with the suite envelope and Retry-After past the burst', async () => {
+  test('answers 429 in plain text with Retry-After past the burst, as Go does', async () => {
     const token = await issuer.token(resource, 'person', 'probe.read');
     const call = () => server.fetch(new Request(resource, {
       method: 'POST', body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
@@ -35,7 +35,15 @@ describe('Server', () => {
     const refused = await call();
     expect(refused.status).toBe(429);
     expect(refused.headers.get('Retry-After')).not.toBeNull();
-    expect(await refused.json()).toEqual({ error: { code: 'rate_limited', message: 'too many requests' } });
+    expect(refused.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+    expect(await refused.text()).toBe('rate limit exceeded');
+  });
+
+  test('refuses a foreign Origin with a plain-text 403, as Go does', async () => {
+    const refused = await server.fetch(new Request(resource, { method: 'POST', headers: { Origin: 'https://evil.example' } }));
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+    expect(await refused.text()).toBe('Forbidden: origin not allowed\n');
   });
 
   test('answers 404 with the envelope off its paths', async () => {

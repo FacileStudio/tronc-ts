@@ -1,3 +1,5 @@
+import { safeUpgradeUrl } from './upgrade';
+
 /**
  * The suite error envelope, `{"error":{"code","message"}}`, and the codes a
  * service throws. It mirrors Go `github.com/FacileStudio/tronc/errors`.
@@ -24,12 +26,12 @@ export class TroncError extends Error {
   readonly code: string;
   readonly upgradeUrl?: string;
 
-  /** Builds an error with code, message, an optional cause and upgrade page. */
+  /** Builds an error with code, message, an optional cause and upgrade page; an unsafe upgrade page is dropped, as Go WithUpgradeURL does. */
   constructor(code: string, message: string, options: { cause?: unknown; upgradeUrl?: string } = {}) {
     super(message, { cause: options.cause });
     this.name = 'TroncError';
     this.code = code;
-    this.upgradeUrl = options.upgradeUrl;
+    if (options.upgradeUrl && safeUpgradeUrl(options.upgradeUrl)) this.upgradeUrl = options.upgradeUrl;
   }
 
   /** The HTTP status of the code, 500 for a code tronc does not know. */
@@ -50,18 +52,21 @@ export const failed = (message: string) => new TroncError('failed_precondition',
 /** A failure the caller cannot fix; cause stays server side. */
 export const internal = (message: string, cause?: unknown) => new TroncError('internal', message, { cause });
 
-/** The envelope body of err. Anything that is not a TroncError hides behind `internal`; a cause never shows. */
-export function envelope(err: unknown): { error: { code: string; message: string; upgrade_url?: string } } {
-  if (!(err instanceof TroncError)) {
-    return { error: { code: 'internal', message: 'internal error' } };
+/** The first TroncError along err's cause chain, like Go errors.As, or undefined. */
+export function troncErrorOf(err: unknown): TroncError | undefined {
+  for (let seen = 0; err instanceof Error && seen < 32; seen++, err = err.cause) {
+    if (err instanceof TroncError) return err;
   }
-  const body: { code: string; message: string; upgrade_url?: string } = { code: err.code, message: err.message };
-  if (err.upgradeUrl) body.upgrade_url = err.upgradeUrl;
-  return { error: body };
+  return undefined;
 }
 
-/** The JSON response for err, with its status and any extra headers. */
-export function errorResponse(err: unknown, headers: Record<string, string> = {}): Response {
-  const status = err instanceof TroncError ? err.status : 500;
-  return Response.json(envelope(err), { status, headers });
+/** The envelope body of err. An error with no TroncError in its cause chain hides behind `internal`; a cause never shows. */
+export function envelope(cause: unknown): { error: { code: string; message: string; upgrade_url?: string } } {
+  const err = troncErrorOf(cause);
+  if (!err) {
+    return { error: { code: 'internal', message: 'internal server error' } };
+  }
+  const body: { code: string; message: string; upgrade_url?: string } = { code: err.code, message: err.message };
+  if (err.upgradeUrl && safeUpgradeUrl(err.upgradeUrl)) body.upgrade_url = err.upgradeUrl;
+  return { error: body };
 }
