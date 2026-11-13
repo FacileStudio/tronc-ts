@@ -30,6 +30,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
+      - name: vectors match the recorded Go tronc tag
+        run: |
+          sh scripts/sync-vectors.sh "$(cat testdata/vectors/SOURCE)"
+          git status --porcelain testdata/vectors
+          test -z "$(git status --porcelain testdata/vectors)"
 
   filet:
     runs-on: ubuntu-latest
