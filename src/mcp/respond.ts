@@ -1,7 +1,8 @@
 import { envelope, troncErrorOf } from './errors';
+import { RATE_LIMIT_EXCEEDED_BODY } from './ratelimit';
 
 /** JSON as Go's encoder writes it: <, >, &, U+2028 and U+2029 escaped, and a trailing newline. */
-function goJson(value: unknown): string {
+export function goJson(value: unknown): string {
   const escapes: Record<string, string> = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029' };
   return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (c) => escapes[c]!) + '\n';
 }
@@ -17,5 +18,13 @@ export function textResponse(status: number, body: string, headers: Record<strin
   return new Response(body, {
     status,
     headers: { ...headers, 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' },
+  });
+}
+
+/** The 429 of Go middleware.Ratelimit: plain text with Retry-After, and no nosniff, which only http.Error adds. */
+export function rateLimitResponse(retryAfter: number): Response {
+  return new Response(RATE_LIMIT_EXCEEDED_BODY, {
+    status: 429,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': String(retryAfter) },
   });
 }

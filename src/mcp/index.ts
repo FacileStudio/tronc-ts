@@ -13,6 +13,7 @@ export * from './confirm';
 export * from './confirmations';
 export * from './errors';
 export * from './failure';
+export * from './offset';
 export * from './page';
 export * from './pending';
 export * from './ratelimit';

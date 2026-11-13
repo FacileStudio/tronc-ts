@@ -9,8 +9,8 @@ import {
 import { consoleAudit, type AuditLogger } from './audit';
 import { metadataResponse, metadataUrl, protectedResourceMetadata, WELL_KNOWN } from './auth';
 import { TroncError } from './errors';
-import { errorResponse, textResponse } from './respond';
-import { DEFAULT_RATE_LIMIT, Limiter, RATE_LIMIT_EXCEEDED_BODY, rateKey, type RateLimit } from './ratelimit';
+import { errorResponse, rateLimitResponse, textResponse } from './respond';
+import { DEFAULT_RATE_LIMIT, Limiter, rateKey, type RateLimit } from './ratelimit';
 import type { Guard, Tool } from './tool';
 import { checkTools } from './validate';
 
@@ -109,7 +109,7 @@ export class Server {
     return protectedResourceMetadata(this.opts.resource, this.opts.issuer, write ? [read, write] : [read]);
   }
 
-  /** The MCP endpoint: Origin check, bearer token, rate limit, then the stateless SDK handler. */
+  /** The MCP endpoint: Origin check, bearer token, rate limit, then the stateless SDK handler. GET and DELETE answer 405 in plain text, as Go's stateless transport does. */
   private async endpoint(request: Request): Promise<Response> {
     const origin = request.headers.get('Origin');
     if (origin && !this.origins.includes(origin)) {
@@ -118,8 +118,9 @@ export class Server {
     const auth = await this.gate(request);
     if (auth instanceof Response) return auth;
     const { ok, retryAfter } = this.limiter.allow(rateKey(auth));
-    if (!ok) {
-      return textResponse(429, RATE_LIMIT_EXCEEDED_BODY, { 'Retry-After': String(retryAfter) });
+    if (!ok) return rateLimitResponse(retryAfter);
+    if (request.method === 'GET' || request.method === 'DELETE') {
+      return textResponse(405, 'Method Not Allowed\n', { Allow: 'POST' });
     }
     return this.handler.fetch(request, { authInfo: auth });
   }

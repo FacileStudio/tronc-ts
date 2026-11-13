@@ -1,3 +1,5 @@
+import { goJson } from './respond';
+
 /** The RFC 9728 well-known prefix. */
 export const WELL_KNOWN = '/.well-known/oauth-protected-resource';
 
@@ -41,5 +43,5 @@ export function metadataResponse(request: Request, doc: ProtectedResourceMetadat
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { ...cors, Allow: 'GET, OPTIONS' } });
   }
-  return Response.json(doc, { headers: { ...cors, 'Cache-Control': 'public, max-age=3600' } });
+  return new Response(goJson(doc), { headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });
 }

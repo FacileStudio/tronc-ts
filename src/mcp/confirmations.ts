@@ -3,7 +3,7 @@ import type { InputRequiredResult } from '@modelcontextprotocol/server';
 import { audit, consoleAudit, type AuditLogger, type Caller } from './audit';
 import { canElicit, confirmationInvalid, Signer } from './confirm';
 import { failed, internal } from './errors';
-import { OUTCOME_DECLINED, OUTCOME_DISMISSED, OUTCOME_DONE, OUTCOME_STALE, type Action, type Pending } from './pending';
+import { OPEN_LIMIT, OUTCOME_DECLINED, OUTCOME_DISMISSED, OUTCOME_DONE, OUTCOME_STALE, type Action, type Pending } from './pending';
 import type { ToolRequest } from './tool';
 
 /** Statuses of an Outcome. A tool puts the status in its result, next to confirm_url when pending. */
@@ -23,6 +23,24 @@ export const DEFAULT_ASK_TTL_MS = 15 * 60 * 1000;
 /** The refusal for a target that changed after the person was asked. The action closes. */
 export const ERR_CHANGED =
   'this changed after the user was asked, so nothing happened. Call the tool again to ask about the current version';
+
+/** The standard text for the model once the person declined a sensitive action. */
+export const MESSAGE_DECLINED = 'The user declined. Nothing happened.';
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/** n followed by unit, with an s unless n is 1. */
+function plural(n: number, unit: string): string {
+  return n === 1 ? `1 ${unit}` : `${n} ${unit}s`;
+}
+
+/** The Waiting text for an action that stays open for ttlMs, named in whole days, or in hours below a day. */
+export function waiting(ttlMs: number): string {
+  const days = Math.floor(ttlMs / (24 * HOUR_MS));
+  const lifetime = days > 0 ? plural(days, 'day') : plural(Math.max(Math.floor(ttlMs / HOUR_MS), 1), 'hour');
+  return 'Nothing happened yet: your client cannot ask the user to confirm. Give the user confirm_url and ' +
+    `ask them to confirm there. Do not call this tool again for the same target; the request stays open for ${lifetime}.`;
+}
 
 /** Runs one kind of sensitive action. */
 export interface Kind {
@@ -56,6 +74,8 @@ export interface Outcome {
   action: Partial<Action>;
   /** The link to give the person when status is STATUS_PENDING. */
   confirmUrl?: string;
+  /** The standard text for the model on a pending link or a decline; a tool puts it in its output's message. */
+  message?: string;
 }
 
 /**
@@ -83,19 +103,24 @@ export class Confirmations {
 
   /**
    * Opens a pending action of kind on target and asks question. When the
-   * client can elicit, result is the input_required result to return as is.
-   * Otherwise the outcome holds STATUS_PENDING and the confirm link. Nothing ran.
+   * person already has an open action of that kind on that target with the
+   * same digest, it asks about that one instead, so an agent looping on a
+   * tool opens one action. The reuse is best effort, and a reused action
+   * keeps its first client and expiry. When the client can elicit, result is
+   * the input_required result to return as is. Otherwise the outcome holds
+   * STATUS_PENDING, the confirm link and the waiting text. Nothing ran.
    */
   async request(req: ToolRequest, kind: string, target: string, question: string): Promise<{ result?: InputRequiredResult; outcome: Outcome }> {
     const runner = this.kind(kind);
     const who = req.caller;
     const draft = { userId: who.userId, kind, target, summary: question, clientId: who.clientId };
-    const action = await this.create({ ...draft, digest: await runner.fingerprint(draft as Action) });
+    const action = await this.reuseOrCreate({ ...draft, digest: await runner.fingerprint(draft as Action) });
     this.audit(runner.tool, 'requested', who, target);
     if (canElicit(req.ctx)) {
       return { result: this.signer.ask(who.userId, action.id, question), outcome: { status: STATUS_PENDING, action } };
     }
-    return { outcome: { status: STATUS_PENDING, action, confirmUrl: this.link(action.id) } };
+    const left = Math.round((action.expiresAt.getTime() - Date.now()) / HOUR_MS) * HOUR_MS;
+    return { outcome: { status: STATUS_PENDING, action, confirmUrl: this.link(action.id), message: waiting(left) } };
   }
 
   /** Handles the retry that carries the answer to a question about kind: a decline closes, an accept runs once. */
@@ -105,7 +130,7 @@ export class Confirmations {
     if (verdict === 'declined') {
       await this.cfg.store.resolve(who.userId, id, OUTCOME_DECLINED);
       this.audit(this.kind(kind).tool, OUTCOME_DECLINED, who, '');
-      return { status: STATUS_DECLINED, action: { id, kind } };
+      return { status: STATUS_DECLINED, action: { id, kind }, message: MESSAGE_DECLINED };
     }
     return { status: STATUS_DONE, action: await this.run(who, id, kind) };
   }
@@ -121,9 +146,20 @@ export class Confirmations {
     this.audit('pending', OUTCOME_DISMISSED, who, id);
   }
 
-  /** Lists the person's waiting actions, newest first. */
-  open(userId: string): Promise<Action[]> {
-    return this.cfg.store.open(userId);
+  /** Lists the person's waiting actions, newest first, at most OPEN_LIMIT. */
+  async open(userId: string): Promise<Action[]> {
+    return (await this.list(userId)).actions;
+  }
+
+  /** open, and whether the person has more than OPEN_LIMIT waiting actions, the oldest of which it leaves out. */
+  async list(userId: string): Promise<{ actions: Action[]; truncated: boolean }> {
+    const actions = await this.cfg.store.open(userId);
+    return { actions: actions.slice(0, OPEN_LIMIT), truncated: actions.length > OPEN_LIMIT };
+  }
+
+  /** The standard text for the model while an action waits on the confirm page, naming the pending lifetime. */
+  waiting(): string {
+    return waiting(this.cfg.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS);
   }
 
   /** Tells a confirm page whether an action still matches what the person was asked about. */
@@ -172,6 +208,13 @@ export class Confirmations {
     }
     await this.cfg.store.finish(action.id, OUTCOME_DONE);
     return { audit: OUTCOME_DONE };
+  }
+
+  /** The person's open action of draft's kind on its target with its digest, or draft stored as a new one. */
+  private async reuseOrCreate(draft: Omit<Action, 'id' | 'createdAt' | 'expiresAt'>): Promise<Action> {
+    const open = await this.cfg.store.open(draft.userId);
+    const same = open.find((a) => a.kind === draft.kind && a.target === draft.target && a.digest === draft.digest);
+    return same ?? this.create(draft);
   }
 
   /** Stores draft under a fresh random id. */

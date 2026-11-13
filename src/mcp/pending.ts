@@ -7,6 +7,13 @@ export const OUTCOME_DECLINED = 'declined';
 export const OUTCOME_DISMISSED = 'dismissed';
 export const OUTCOME_STALE = 'stale';
 
+/** The most waiting actions Confirmations.list returns for one person. */
+export const OPEN_LIMIT = 100;
+
+/** Defaults of keepPruned: prune hourly the actions resolved or expired more than 30 days ago. */
+export const DEFAULT_PRUNE_EVERY_MS = 60 * 60 * 1000;
+export const DEFAULT_PRUNE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** The refusal for an action that ran, was dismissed, expired or was never this person's. */
 export const ERR_GONE = 'this action was already confirmed, dismissed or expired';
 
@@ -41,7 +48,7 @@ export interface Action {
 export interface Pending {
   /** Stores a new action; id, createdAt and expiresAt are set. */
   create(action: Action): Promise<void>;
-  /** Lists the person's unresolved, unexpired actions, newest first. */
+  /** Lists the person's unresolved, unexpired actions, newest first. It may stop after OPEN_LIMIT + 1 of them. */
   open(userId: string): Promise<Action[]>;
   /** Marks one of the person's open actions as running and returns it, or throws gone(). */
   claim(userId: string, id: string): Promise<Action>;
@@ -96,10 +103,10 @@ export class SqlPending implements Pending {
     ]);
   }
 
-  /** Lists userId's open actions, newest first. */
+  /** Lists userId's open actions, newest first, at most OPEN_LIMIT + 1. */
   async open(userId: string): Promise<Action[]> {
     const rows = await this.run(`SELECT ${COLUMNS} FROM mcp_actions
-      WHERE user_id = $1 AND resolved_at IS NULL AND expires_at > now() ORDER BY created_at DESC, id`, [userId]);
+      WHERE user_id = $1 AND resolved_at IS NULL AND expires_at > now() ORDER BY created_at DESC, id LIMIT $2`, [userId, OPEN_LIMIT + 1]);
     return rows.map(toAction);
   }
 
@@ -135,6 +142,11 @@ export class SqlPending implements Pending {
     return erasePending(this.query, ...userIds);
   }
 
+  /** Deletes the actions resolved, or expired, more than olderThanMs ago and returns how many went. */
+  prune(olderThanMs: number): Promise<number> {
+    return prunePending(this.query, olderThanMs);
+  }
+
   /** Runs a statement and hides driver errors behind an internal error. */
   private async run(sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
     try {
@@ -158,6 +170,48 @@ export async function erasePending(query: Query, ...userIds: string[]): Promise<
       throw internal('failed to erase pending actions', cause);
     }
   }
+}
+
+/** Deletes, through query and in one statement, the actions resolved or expired more than olderThanMs ago, and returns how many went. */
+export async function prunePending(query: Query, olderThanMs: number): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  try {
+    const rows = await query(`DELETE FROM mcp_actions
+      WHERE (resolved_at IS NOT NULL AND resolved_at < $1) OR expires_at < $1 RETURNING id`, [cutoff]);
+    return rows.length;
+  } catch (cause) {
+    throw internal('failed to prune pending actions', cause);
+  }
+}
+
+/** A store that drops the actions it no longer needs, such as SqlPending. */
+export interface Pruner {
+  prune(olderThanMs: number): Promise<number>;
+}
+
+/** How often keepPruned prunes, what it drops, when it stops and where it reports. */
+export interface PruneOptions {
+  /** DEFAULT_PRUNE_EVERY_MS when unset. */
+  everyMs?: number;
+  /** DEFAULT_PRUNE_AFTER_MS when unset. */
+  olderThanMs?: number;
+  /** Stops the pruning when it aborts. */
+  signal?: AbortSignal;
+  /** Receives a failed prune; console.warn when unset. */
+  onError?: (err: unknown) => void;
+}
+
+/** Prunes store at once, then every everyMs until signal aborts, like Go mcp.KeepPruned. It returns the stop function. */
+export function keepPruned(store: Pruner, opts: PruneOptions = {}): () => void {
+  if (opts.signal?.aborted) return () => undefined;
+  const report = opts.onError ?? ((err: unknown) => console.warn('mcp: pruning pending actions failed', err));
+  const prune = () => void store.prune(opts.olderThanMs || DEFAULT_PRUNE_AFTER_MS).catch(report);
+  prune();
+  const timer = setInterval(prune, opts.everyMs || DEFAULT_PRUNE_EVERY_MS);
+  timer.unref?.();
+  const stop = () => clearInterval(timer);
+  opts.signal?.addEventListener('abort', stop, { once: true });
+  return stop;
 }
 
 /** Reads one row of COLUMNS. */
