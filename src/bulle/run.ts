@@ -1,3 +1,4 @@
+import { parseUrl, urlString } from '../mcp/url';
 import { RUN_STATES, type RunState } from './types';
 
 /** The query naming app and space, each left out when empty. */
@@ -16,9 +17,9 @@ export function runState(status: string | undefined, pending: number): RunState 
   return RUN_STATES.running;
 }
 
-/** raw when it is an http or https link with a host and no credentials, otherwise ''. */
+/** raw as Go url.URL.String writes it when it is an http or https link with a host and no credentials, otherwise ''. */
 export function webLink(raw: string | undefined): string {
-  const match = /^(https?):\/\/([^/?#]*)/i.exec(raw ?? '');
-  if (!match || !match[2] || match[2].includes('@') || !URL.canParse(raw!)) return '';
-  return raw!;
+  const parsed = parseUrl(raw ?? '');
+  if (!parsed || (parsed.scheme !== 'https' && parsed.scheme !== 'http') || parsed.host === '' || parsed.user) return '';
+  return urlString(parsed);
 }

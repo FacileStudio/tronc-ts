@@ -1,9 +1,12 @@
-import { BadSegmentError, failureOf, StatusError, UnreachableError } from './errors';
+import { BadSegmentError, failureOf, NoActingForError, StatusError, UnreachableError } from './errors';
 import { webLink, runState, scope } from './run';
 import type { Batch, CompleteRequest, CompleteResponse, DecideRequest, DecideResponse, IdeaList, Run, RunStart } from './types';
 import { byteLength, encodeQuery, pathEscape } from './escape';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+
+/** Names, on a decideAI call, the Bulle person the service acts for. */
+export const ACTING_FOR_HEADER = 'X-Bulle-Acting-For';
 const MAX_BODY = 1 << 20;
 
 /** Returns the bearer token for user: an exchanged token (audience bulle) or a service key. */
@@ -23,7 +26,7 @@ export interface Config {
 }
 
 /** One call to Bulle's API. Segments follow /api/ and are escaped one by one, so an id holding a slash or a query stays one segment. */
-export interface Request {
+export interface BulleRequest {
   method: string;
   segments: string[];
   query?: Record<string, string>;
@@ -89,12 +92,12 @@ export class Client {
   }
 
   /** Sends req as user and returns the 2xx JSON answer, undefined when the body is empty. */
-  async call<T = unknown>(user: string, req: Request): Promise<T | undefined> {
+  async call<T = unknown>(user: string, req: BulleRequest): Promise<T | undefined> {
     return (await this.raw(user, req, true)) as T | undefined;
   }
 
   /** Sends req as user and ignores the 2xx body. */
-  async send(user: string, req: Request): Promise<void> {
+  async send(user: string, req: BulleRequest): Promise<void> {
     await this.raw(user, req, false);
   }
 
@@ -151,17 +154,23 @@ export class Client {
     return answer;
   }
 
-  /** One decision through POST /api/ai/decide, with a service key as token, for the Bulle person named by actingFor. */
+  /**
+   * One decision through POST /api/ai/decide, with a service key as token,
+   * for the Bulle person named by actingFor. A blank actingFor throws
+   * NoActingForError before any call.
+   */
   async decideAI(user: string, req: DecideRequest): Promise<DecideResponse> {
+    const actingFor = req.actingFor.trim();
+    if (actingFor === '') throw new NoActingForError();
     const answer = await this.call<DecideResponse>(user, {
-      method: 'POST', segments: ['ai', 'decide'], headers: { 'X-Bulle-Acting-For': req.actingFor },
+      method: 'POST', segments: ['ai', 'decide'], headers: { [ACTING_FOR_HEADER]: actingFor },
       body: { state: req.state, questions: req.questions },
     });
     if (!answer) throw new UnreachableError('empty answer');
     return answer;
   }
 
-  private async raw(user: string, req: Request, parse: boolean): Promise<unknown> {
+  private async raw(user: string, req: BulleRequest, parse: boolean): Promise<unknown> {
     const target = this.target(req);
     const payload = req.body === undefined ? undefined : JSON.stringify(req.body);
     try {
@@ -173,7 +182,7 @@ export class Client {
     }
   }
 
-  private target(req: Request): string {
+  private target(req: BulleRequest): string {
     const escaped = req.segments.map((segment) => {
       if (segment === '' || segment === '.' || segment === '..' || byteLength(segment) > 200) throw new BadSegmentError();
       return pathEscape(segment);
@@ -182,10 +191,12 @@ export class Client {
     return `${this.base}/api/${escaped.join('/')}${query ? `?${query}` : ''}`;
   }
 
-  private async once(user: string, req: Request, target: string, payload: string | undefined, parse: boolean): Promise<unknown> {
+  private async once(user: string, req: BulleRequest, target: string, payload: string | undefined, parse: boolean): Promise<unknown> {
     const token = await this.cfg.token(user);
-    const headers: Record<string, string> = { ...req.headers, Authorization: `Bearer ${token}`, Accept: 'application/json' };
-    if (payload !== undefined) headers['Content-Type'] = 'application/json';
+    const headers = new Headers(req.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    headers.set('Accept', 'application/json');
+    if (payload !== undefined) headers.set('Content-Type', 'application/json');
     let response: Response;
     let raw: string;
     try {

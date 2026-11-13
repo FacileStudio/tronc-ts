@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { BadSegmentError, Client, encodeQuery, pathEscape, PlanRequired, StatusError, UnreachableError } from '.';
+import { BadSegmentError, Client, encodeQuery, NoActingForError, pathEscape, PlanRequired, StatusError, UnreachableError } from '.';
 
 interface Seen {
   method: string;
@@ -118,10 +118,18 @@ describe('typed calls', () => {
   test('decideAI names the person in X-Bulle-Acting-For', async () => {
     const { seen, fetcher } = fake(() => json(200, { answers: { project: { choice: 'a', confidence: 0.9, probabilities: { a: 0.9, b: 0.1 } } }, model: 'j', usage: {} }));
     const questions = { project: { type: 'choice' as const, instructions: 'which project', options: ['a', 'b'] } };
-    const answer = await client(fetcher).decideAI('sablier', { actingFor: 'ada@x.test', state: { title: 't' }, questions });
+    const answer = await client(fetcher).decideAI('sablier', { actingFor: ' ada@x.test ', state: { title: 't' }, questions });
     expect(answer.answers.project?.choice).toBe('a');
     expect(seen[0]!.headers.get('X-Bulle-Acting-For')).toBe('ada@x.test');
     expect(seen[0]!.body).toEqual({ state: { title: 't' }, questions });
+    await expect(client(fetcher).decideAI('sablier', { actingFor: ' ', state: {}, questions })).rejects.toBeInstanceOf(NoActingForError);
+    expect(seen).toHaveLength(1);
+  });
+
+  test('a caller header never joins or replaces Authorization', async () => {
+    const { seen, fetcher } = fake(() => json(200, {}));
+    await client(fetcher).call('u1', { method: 'GET', segments: ['ideas'], headers: { authorization: 'Bearer evil', 'X-Extra': '1' } });
+    expect([seen[0]!.headers.get('Authorization'), seen[0]!.headers.get('X-Extra')]).toEqual(['Bearer tok-u1', '1']);
   });
 
   test('ideas scope app and space, and runStatus derives the state and keeps only web links', async () => {
