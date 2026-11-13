@@ -6,6 +6,34 @@ All notable changes to `tronc-ts` are recorded here. The format follows
 
 ## [Unreleased]
 
+Ports Go tronc/bulle (unchanged since v0.18.0) and aligns the MCP kit's refusals with Go tronc
+v0.22.2. Go: tronc v0.23.0 adds the typed `Complete` with `SpaceID`, the decision call, refused
+redirects and the vectors this package will consume.
+
+### Added
+
+- **`@facile/tronc/bulle`**, the Bulle client: `call`/`send` with Go's segment and query escaping,
+  `ideas`, `generate`, `run`, `runStatus`, `decide` (a run's approval), `dismiss`, a typed
+  `complete` on `/api/ai/complete` (with `spaceId`) and `decideAI` on `/api/ai/decide`. A 402 is
+  `PlanRequired` with an unsafe upgrade page dropped, another 4xx `StatusError`, and a 5xx,
+  timeout, network error or redirect `UnreachableError`. A 401 retries once after `forget`.
+  Redirects are never followed.
+- **`safeUpgradeUrl`**, Go's `errors.SafeUpgradeURL`, and `troncErrorOf`, which finds a
+  `TroncError` along an error's cause chain like Go's `errors.As`.
+- **Go conformance vectors** in `testdata/vectors`, synced by `scripts/sync-vectors.sh <tag>`
+  and checked in CI against the recorded tag. `errors.json` runs; each other subject is listed
+  as Go-only, and a new vector file fails the test until it gets a runner or that listing.
+
+### Changed
+
+- **Breaking:** the MCP rate limit defaults to 120 calls a minute with a burst of 120, as Go
+  `NewApp`. A token without a person gets a bucket of its own instead of a shared `anonymous` one.
+- **Breaking:** a 429 is plain text `rate limit exceeded` and a foreign `Origin` a plain-text
+  403 `Forbidden: origin not allowed`, as Go answers both.
+- A non-tronc error's envelope message is `internal server error`, and envelope bodies are byte
+  for byte Go's `httpjson.WriteError`. A `TroncError` drops an upgrade page that is not a
+  same-origin path or an https URL, and `failure` and `envelope` read a wrapped `TroncError`.
+
 ## [0.2.0] - 2026-11-11
 
 Ports `Digest` and `Pending.Erase` from Go tronc/mcp v0.22.0. Its chi confirm-page routes (`PendingPage`), `NewApp` and `TargetIDs` stay Go-only.
