@@ -1,6 +1,6 @@
 {
   "name": "@facile/tronc",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The TypeScript chassis of the Facile suite: a remote MCP server kit on the official SDK, its conformance kit, and the Bulle client",
   "license": "MIT",
   "type": "module",

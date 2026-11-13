@@ -4,7 +4,7 @@ All notable changes to `tronc-ts` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow semver. While on
 `v0`, a breaking change bumps the minor.
 
-## [Unreleased]
+## [0.3.0] - 2026-11-14
 
 Ports Go tronc/bulle and the MCP changes of Go tronc v0.23.0, and runs every v0.23.0
 conformance vector that applies to TypeScript.
