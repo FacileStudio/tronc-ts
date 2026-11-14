@@ -104,9 +104,11 @@ export class Confirmations {
   /**
    * Opens a pending action of kind on target and asks question. When the
    * person already has an open action of that kind on that target with the
-   * same digest, it asks about that one instead, so an agent looping on a
-   * tool opens one action. The reuse is best effort, and a reused action
-   * keeps its first client and expiry. When the client can elicit, result is
+   * same digest, asked by the same OAuth client, it asks about that one
+   * instead, so an agent looping on a tool opens one action. Another client
+   * of the same person opens its own action, so consent given through one
+   * client never reaches another. The reuse is best effort, and a reused
+   * action keeps its first expiry. When the client can elicit, result is
    * the input_required result to return as is. Otherwise the outcome holds
    * STATUS_PENDING, the confirm link and the waiting text. Nothing ran.
    */
@@ -210,10 +212,10 @@ export class Confirmations {
     return { audit: OUTCOME_DONE };
   }
 
-  /** The person's open action of draft's kind on its target with its digest, or draft stored as a new one. */
+  /** The person's open action of draft's kind on its target with its digest, asked by draft's OAuth client, or draft stored as a new one. */
   private async reuseOrCreate(draft: Omit<Action, 'id' | 'createdAt' | 'expiresAt'>): Promise<Action> {
     const open = await this.cfg.store.open(draft.userId);
-    const same = open.find((a) => a.kind === draft.kind && a.target === draft.target && a.digest === draft.digest);
+    const same = open.find((a) => a.kind === draft.kind && a.target === draft.target && a.digest === draft.digest && a.clientId === draft.clientId);
     return same ?? this.create(draft);
   }
 

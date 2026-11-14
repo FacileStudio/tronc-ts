@@ -30,16 +30,20 @@ const GO_ONLY = new Set(['json_decode', 'health', 'request_log', 'security_heade
 function bulleAnswering(answer: Record<string, unknown>): Client {
   const fetcher = (async () => new Response(str(answer, 'body') ?? '', {
     status: answer.status as number,
-    headers: { 'Content-Type': 'application/json', ...(answer.location ? { Location: answer.location as string } : {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(answer.location ? { Location: answer.location as string } : {}),
+      ...(answer.retry_after ? { 'Retry-After': answer.retry_after as string } : {}),
+    },
   })) as unknown as typeof fetch;
   return new Client({ url: 'https://bulle.example', token: async () => 'tok', fetch: fetcher });
 }
 
-/** Classifies a complete outcome as Go's bulle vectors do. */
+/** Classifies a complete outcome as Go's bulle vectors do, with the optional Retry-After wait in seconds. */
 function classifyBulle(err: unknown): Record<string, unknown> {
   if (err === undefined) return { kind: 'ok' };
   if (err instanceof PlanRequired) return omitEmpty({ kind: 'plan_required', message: err.message, upgrade_url: err.upgradeUrl, key: err.key, limit: err.limit });
-  if (err instanceof StatusError) return omitEmpty({ kind: 'status', status: err.status, code: err.code, message: err.message });
+  if (err instanceof StatusError) return omitEmpty({ kind: 'status', status: err.status, code: err.code, message: err.message, retry_after_seconds: err.retryAfterMs / 1000 });
   if (err instanceof UnreachableError) return { kind: 'unreachable' };
   return { kind: 'other' };
 }

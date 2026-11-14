@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { BadSegmentError, Client, encodeQuery, NoActingForError, pathEscape, PlanRequired, StatusError, UnreachableError } from '.';
+import { BadSegmentError, Client, encodeQuery, NoActingForError, pathEscape, PlanRequired, retryAfterMs, StatusError, UnreachableError } from '.';
 
 interface Seen {
   method: string;
@@ -70,6 +70,19 @@ describe('answers', () => {
     expect(await run(() => json(503, {}))).toBeInstanceOf(UnreachableError);
     expect(await run(() => new Response('{', { status: 200 }))).toBeInstanceOf(UnreachableError);
     expect(await client(fake(() => new Response('', { status: 200 })).fetcher).call('u1', { method: 'GET', segments: ['x'] })).toBeUndefined();
+  });
+
+  test('reads Retry-After on a 429 and a 503, and a 503 with one stays an UnreachableError', async () => {
+    const waiting = (status: number, wait: string) => () => new Response('{}', { status, headers: { 'Retry-After': wait } });
+    const run = (response: () => Response) => client(fake(response).fetcher).call('u1', { method: 'GET', segments: ['x'] }).then(() => undefined, (e: StatusError) => e) as Promise<StatusError>;
+    const capped = await run(waiting(429, '999999'));
+    const unavailable = await run(waiting(503, '30'));
+    expect([capped.retryAfterMs, (await run(waiting(404, '30'))).retryAfterMs]).toEqual([86_400_000, 0]);
+    expect([unavailable instanceof StatusError, unavailable instanceof UnreachableError, unavailable.retryAfterMs]).toEqual([true, true, 30_000]);
+    expect(await run(waiting(429, '5')) instanceof UnreachableError).toBe(false);
+    expect(await run(waiting(503, 'soon'))).not.toBeInstanceOf(StatusError);
+    const now = Date.parse('Sat, 14 Nov 2026 12:00:00 GMT');
+    expect(['Sat, 14 Nov 2026 12:01:30 GMT', 'Sat, 14 Nov 2026 11:00:00 GMT', '2026-11-15', '-5', '99999999999999999999'].map((v) => retryAfterMs(v, now))).toEqual([90_000, 0, 0, 0, 0]);
   });
 
   test('throws a network failure as UnreachableError and a token source failure as it is', async () => {
