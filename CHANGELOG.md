@@ -4,6 +4,18 @@ All notable changes to `tronc-ts` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow semver. While on
 `v0`, a breaking change bumps the minor.
 
+## [0.3.2] - 2026-11-14
+
+Ports Go tronc v0.23.2. Vectors synced to `v0.23.2`.
+
+### Changed
+
+- **A `PlanLimit` failure says nothing was done and names the feature readably.** The text is now
+  "Nothing was done: the plan limit for <label> is reached. Upgrade at <url>". A built-in table
+  maps the suite forfait keys (`nuage.storage_gb` to storage, `sonar.searches_daily` to daily
+  searches, and so on) and an unknown key stays raw. Add a new app limit key to the table (Go
+  `featureLabels`), or the model sees the internal key.
+
 ## [0.3.1] - 2026-11-14
 
 Ports Go tronc v0.23.1 and runs its conformance vectors.
