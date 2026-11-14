@@ -123,6 +123,16 @@ describe('Confirmations', () => {
     expect(first.outcome.message).toContain('the request stays open for 7 days.');
   });
 
+  test('reuses only the same OAuth client\'s open action', async () => {
+    const otherClient = { ...req, caller: { ...req.caller, clientId: 'c2' } } as unknown as ToolRequest;
+    const first = await confirmations.request(req, 'delete', 'n3', 'Delete n3?');
+    const second = await confirmations.request(otherClient, 'delete', 'n3', 'Delete n3?');
+    const again = await confirmations.request(otherClient, 'delete', 'n3', 'Delete n3?');
+    expect(second.outcome.action.id).not.toBe(first.outcome.action.id!);
+    expect(second.outcome.action.clientId).toBe('c2');
+    expect(again.outcome.action.id).toBe(second.outcome.action.id!);
+  });
+
   test('lists at most OPEN_LIMIT actions and says it left some out', async () => {
     for (let i = 0; i <= OPEN_LIMIT; i++) await confirmations.request(req, 'delete', `bulk${i}`, 'Delete?');
     const { actions, truncated } = await confirmations.list('u1');

@@ -4,6 +4,27 @@ All notable changes to `tronc-ts` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow semver. While on
 `v0`, a breaking change bumps the minor.
 
+## [0.3.1] - 2026-11-14
+
+Ports Go tronc v0.23.1 and runs its conformance vectors.
+
+### Security
+
+- **Pending-action dedupe matches the OAuth client.** `Confirmations.request` reuses an open
+  action only when the user, kind, target, digest and the requesting client id all match.
+  Before, a second client of the same person reused the first client's action, so consent given
+  to client B could let client A collect the result. Each client now opens its own action.
+
+### Added
+
+- **`StatusError.retryAfterMs`**: the wait, in milliseconds, that Bulle's `Retry-After` header
+  names on a 429 or a 503, read from delay seconds or an IMF-fixdate, capped at a day, 0 when
+  absent, unreadable or past. A 503 with a `Retry-After` now throws a `StatusError` that is still
+  `instanceof UnreachableError`, like Go's `StatusError` that wraps `ErrUnreachable`; a 503
+  without one is unchanged. `retryAfterMs(value, now?)` is exported.
+- Vectors synced from Go tronc v0.23.1; the `bulle_errors` runner sends `retry_after` and checks
+  the optional `retry_after_seconds`.
+
 ## [0.3.0] - 2026-11-14
 
 Ports Go tronc/bulle and the MCP changes of Go tronc v0.23.0, and runs every v0.23.0

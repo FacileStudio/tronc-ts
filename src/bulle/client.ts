@@ -208,7 +208,7 @@ export class Client {
     } catch (err) {
       throw new UnreachableError(err instanceof Error ? err.message : String(err), err);
     }
-    const failure = failureOf(response.status, raw);
+    const failure = failureOf(response.status, raw, response.headers.get('Retry-After'));
     if (failure) throw failure;
     return parse ? decode(raw) : undefined;
   }

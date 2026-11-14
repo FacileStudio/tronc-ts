@@ -184,8 +184,11 @@ const list = await bulle.ideas(userId, 'glouton', spaceId);
   one by one, so an id holding `/` or `?` stays one segment; `.`, `..` and empty ones throw
   `BadSegmentError` before any call.
 - A 402 throws `PlanRequired` (`message`, `upgradeUrl`, `key`, `limit`), another 4xx `StatusError`
-  (`status`, `code`, `message`), and a 5xx, timeout, network error or redirect
-  `UnreachableError`. A token source failure is thrown as it is.
+  (`status`, `code`, `message`, `retryAfterMs`), and a 5xx, timeout, network error or redirect
+  `UnreachableError`. On a 429 `retryAfterMs` is the wait the `Retry-After` header names, in
+  milliseconds (delay seconds or an IMF-fixdate, capped at a day, 0 when absent or past). A 503
+  with a `Retry-After` throws a `StatusError` carrying the wait that is still
+  `instanceof UnreachableError`. A token source failure is thrown as it is.
 
 ## Development
 
