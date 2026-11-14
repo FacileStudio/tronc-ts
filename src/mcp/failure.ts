@@ -33,6 +33,22 @@ export interface PlanLimit extends Error {
   planLimit(): { feature: string; upgradeUrl: string };
 }
 
+/** The suite's forfait keys the way a person reads them, as Go mcp featureLabels. */
+const FEATURE_LABELS: Readonly<Record<string, string>> = {
+  'ai.access': 'AI',
+  'courrier.mailboxes': 'mailboxes',
+  'echo.max_call_minutes': 'call length',
+  'echo.max_participants': 'participants',
+  'echo.recording': 'recording',
+  'nuage.storage_gb': 'storage',
+  'sonar.searches_daily': 'daily searches',
+};
+
+/** The readable name of a forfait key, or the key itself when the table does not know it. */
+function featureLabel(key: string): string {
+  return Object.hasOwn(FEATURE_LABELS, key) ? FEATURE_LABELS[key]! : key;
+}
+
 /** The first PlanLimit along err's cause chain, like Go errors.As, or undefined. */
 function planLimitOf(err: unknown): PlanLimit | undefined {
   for (let seen = 0; err instanceof Error && seen < 32; seen++, err = err.cause) {
@@ -45,8 +61,9 @@ function planLimitOf(err: unknown): PlanLimit | undefined {
  * Turns a service error into one a model can act on, like Go mcp.Failure. A
  * bad argument or a missing precondition keeps its message. A missing record
  * keeps its message plus hint, which should name the tool that lists valid
- * ids. A plan refusal, a payment_required TroncError or a PlanLimit, keeps
- * its message and names its upgrade page when it is safe to show. An
+ * ids. A payment_required TroncError keeps its message, and a PlanLimit says
+ * nothing was done and names the feature; both name the upgrade page when it
+ * is safe to show. An
  * unavailable dependency keeps its message, which says what is down.
  * Anything else becomes ERR_UNAVAILABLE, so internal detail stays out of the
  * result.
@@ -54,7 +71,7 @@ function planLimitOf(err: unknown): PlanLimit | undefined {
 export function failure(cause: unknown, hint = ''): ToolFailure {
   if (cause instanceof ToolFailure) return cause;
   const limit = planLimitOf(cause)?.planLimit();
-  if (limit) return new ToolFailure(upgrade(`the plan limit for ${limit.feature} is reached`, limit.upgradeUrl));
+  if (limit) return new ToolFailure(upgrade(`nothing was done: the plan limit for ${featureLabel(limit.feature)} is reached`, limit.upgradeUrl));
   const err = troncErrorOf(cause);
   if (!err) return new ToolFailure(ERR_UNAVAILABLE);
   if (err.code === 'not_found') return new ToolFailure(`${sentence(err.message)}. ${hint}`.trim());
